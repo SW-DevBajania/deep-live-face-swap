@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Stream Processing</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        h3 {
+            color: #2c3e50;
+            text-align: center;
+        }
+        .video-container {
+            display: flex;
+            justify-content: space-between;
+            margin: 20px;
+        }
+        video {
+            width: 400px;
+            height: 300px;
+            border: 2px solid #3498db;
+            border-radius: 8px;
+            background-color: #fff;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            padding: 10px 15px;
+            margin: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:disabled {
+            background-color: #7f8c8d; /* Gray color when disabled */
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="video-container">
+        <div>
+            <h3>Original Stream</h3>
+            <video id="localVideo" autoplay muted></video>
+        </div>
+        <div>
+            <h3>Processed Stream</h3>
+            <video id="processedVideo" autoplay></video>
+        </div>
+    </div>
+
+    <button id="startBtn">Start Streaming</button>
+    <button id="stopBtn" disabled>Stop Streaming</button>
+
+    <script>
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const localVideo = document.getElementById('localVideo');
+        const processedVideo = document.getElementById('processedVideo');
+
+        let localStream;
+        let pc;
+        let websocket;
+
+        async function startStreaming() {
+            try {
+                // Get the user's media (audio and video)
+                localStream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: true });
+                localVideo.srcObject = localStream;
+
+                // Initialize WebSocket connection for signaling
+                websocket = new WebSocket('wss://54.175.167.242:8000/video');
+                websocket.onmessage = async (event) => {
+                    const data = event.data;
+
+                    // Handle SDP answer received from FastAPI server
+                    if (data.includes("v=")) {
+                        const answer = new RTCSessionDescription({
+                            type: "answer",
+                            sdp: data
+                        });
+                        await pc.setRemoteDescription(answer);
+                    }
+                };
+
+                websocket.onopen = async () => {
+                    // Create RTCPeerConnection
+                    pc = new RTCPeerConnection();
+
+                    console.log(localStream.getTracks());
+                    // Add local stream to the peer connection
+                    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+                    // Handle the incoming processed stream (video and audio)
+                    pc.ontrack = (event) => {
+                        console.log(event);
+                        if (event.track.kind === 'video') {
+                            console.log("Receving video frames")
+                            processedVideo.srcObject = event.streams[0];  // Display processed video
+                        } else if (event.track.kind === 'audio') {
+                            console.log('Audio track received');
+                            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                            const source = audioContext.createMediaStreamSource(event.streams[0]);
+                            source.connect(audioContext.destination);  // Play audio from processed stream
+                        }
+                    };
+
+                    // Create SDP offer and send it via WebSocket
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+                    websocket.send(pc.localDescription.sdp);
+                };
+
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+            } catch (error) {
+                console.error("Error starting stream:", error);
+            }
+        }
+
+
+        function stopStreaming() {
+            if (pc) {
+                pc.close();
+            }
+            if (websocket) {
+                websocket.close();
+            }
+
+            localStream.getTracks().forEach(track => track.stop());
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+        }
+
+        startBtn.addEventListener('click', startStreaming);
+        stopBtn.addEventListener('click', stopStreaming);
+    </script>
+</body>
+</html>

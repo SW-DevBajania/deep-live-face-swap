@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Mapping Tool</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            overflow: auto;
+            align-items: center;
+        }
+        .background-blur {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            filter: blur(5px);
+            z-index: 0;
+        }
+        .container {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 10px;
+            color: #333;
+            width: 90%;
+            max-width: 600px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+            position: relative;
+            z-index: 1;
+        }
+        h2 {
+            margin: 0 0 20px;
+            font-size: 28px;
+            color: #2c3e50;
+            text-align: center;
+        }
+        label {
+            display: flex;
+            align-items: center;
+            margin-top: 5px;
+            color: #333;
+            gap: 2px;
+        }
+        input, select, button {
+            margin-top: 10px;
+            padding: 10px;
+            width: 100%;
+            border: 2px solid #3498db;
+            border-radius: 5px;
+            font-size: 16px;
+            background-color: #fff;
+            color: #333;
+        }
+        input[type="file"] {
+            background-color: #fff;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        button:disabled {
+            background-color: #7f8c8d;
+            cursor: not-allowed;
+        }
+        .options {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .heading-options {
+            color: #333;
+            margin-top: 20px;
+            font-weight: bold;
+        }
+        #loadingMessage {
+            display: none;
+            text-align: center;
+            font-size: 18px;
+            color: #e67e22;
+            margin-top: 20px;
+        }
+        #outputContainer {
+            text-align: center;
+            margin-top: 20px;
+        }
+        #downloadButton {
+            display: none;
+            margin-top: 10px;
+            text-align: center;
+            background-color: #28a745;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            text-decoration: none;
+        }
+        #downloadButton:hover {
+            background-color: #218838;
+        }
+        @media (max-width: 600px) {
+            h2 {
+                font-size: 20px;
+            }
+            input, select, button {
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="background-blur"></div>
+    <div class="container">
+        <h2>Face Swapping Tool</h2>
+        <form id="faceForm" enctype="multipart/form-data">
+            <p> Upload  source image here (only image)</p>
+            <input type="file" id="source" name="source" accept="image/*" required>
+            <p> Upload target image or video</p>
+            <input type="file" id="target" name="target" accept="image/*" required>
+
+            <label for="output">Output File</label>
+            <input type="text" id="output" name="output" placeholder="output.png" required>
+
+            <div class="heading-options">Frame Processor</div>
+            <div class="options">
+                <label><input type="checkbox" name="frame_processor" value="face_swapper" checked required disabled> Face Swapper</label>
+                <label><input type="checkbox" name="frame_processor" value="face_enhancer"> Face Enhancer</label>
+            </div>
+
+            <div class="heading-options">Options</div>
+            <div class="options">
+                <label><input type="checkbox" id="keep_fps" name="keep_fps"> Keep FPS</label>
+                <label><input type="checkbox" id="keep_audio" name="keep_audio" checked> Keep Audio</label>
+            </div>
+
+            <button type="button" id="startButton" onclick="submitForm(event)">Start</button>
+        </form>
+        <div id="loadingMessage" style="display:none; text-align: center; margin-top: 20px;">Processing... Please wait.</div>
+
+        <div id="outputContainer" style="text-align: center; margin-top: 20px;"></div>
+
+        <a id="downloadButton" style="display:none; margin-top: 10px; text-align: center;" class="button">
+            Download Output
+        </a>
+    </div>
+
+    <script>
+        async function submitForm(event) {
+            event.preventDefault(); // Prevent form submission from refreshing the page
+
+            const outputContainer = document.getElementById('outputContainer');
+            const downloadButton = document.getElementById('downloadButton');
+            const loadingMessage = document.getElementById('loadingMessage');
+            const startButton = document.getElementById('startButton');
+
+            // Clear previous output and messages
+            outputContainer.innerHTML = '';
+            downloadButton.style.display = 'none';
+            loadingMessage.style.display = 'block';
+            startButton.disabled = true; // Disable the Start button
+
+            // Get file inputs
+            const sourceFile = document.getElementById('source').files[0];
+            const targetFile = document.getElementById('target').files[0];
+
+            // Check if files are selected
+            if (!sourceFile || !targetFile) {
+                alert('Please select both source and target files.');
+                loadingMessage.style.display = 'none';
+                startButton.disabled = false; // Re-enable Start button
+                return;
+            }
+
+            // Create a new FormData object
+            const formData = new FormData();
+            formData.append('source', sourceFile);
+            formData.append('target', targetFile);
+            formData.append('output', document.getElementById('output').value);
+
+            // Gather options
+            formData.append('keep_fps', document.getElementById('keep_fps').checked ? 'true' : 'false');
+            formData.append('keep_audio', document.getElementById('keep_audio').checked ? 'true' : 'false');
+
+            // Handle frame_processor properly
+            const frameProcessor = document.querySelector('input[name="frame_processor"]:checked').value;
+            formData.append('frame_processor', frameProcessor);
+
+            try {
+                // Send the request to the API
+                const response = await fetch('/process', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                // Check if the response is OK
+                if (!response.ok) {
+                    alert('Error processing the request. Please try again.');
+                    return;
+                }
+
+                // Handle response (assuming it's a file download)
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+
+                // Update the UI to show the result
+                if (blob.type.startsWith('image/')) {
+                    const img = document.createElement('img');
+                    img.src = url;
+                    img.style.maxWidth = '100%';
+                    outputContainer.appendChild(img);
+                } else if (blob.type.startsWith('video/')) {
+                    const video = document.createElement('video');
+                    video.src = url;
+                    video.controls = true;
+                    video.style.maxWidth = '100%';
+                    outputContainer.appendChild(video);
+                } else {
+                    alert('Received an unexpected file type.');
+                }
+
+                // Enable the download button
+                downloadButton.href = url;
+                downloadButton.download = formData.get('output');
+                downloadButton.style.display = 'block';
+                
+            } catch (error) {
+                console.error('Error during form submission:', error);
+                alert(`Error occurred: ${error.message}`);
+            } finally {
+                // Hide the loading message and re-enable the Start button
+                loadingMessage.style.display = 'none';
+                startButton.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

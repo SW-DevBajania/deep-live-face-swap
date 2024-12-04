@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Face Swap - Side by Side</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        #original, #processed {
+            width: 48%; 
+            height: auto; 
+            border: 2px solid black; 
+            display: inline-block;
+        }
+        .controls { margin-top: 20px; }
+        #loading { display: none; }
+    </style>
+</head>
+<body>
+    <h1>Live Face Swap - Original vs Processed</h1>
+    <div>
+        <canvas id="original"></canvas>
+        <canvas id="processed"></canvas>
+    </div>
+    <div id="loading">Processing, please wait...</div>
+    <div class="controls">
+        <button id="startBtn">Start</button>
+        <button id="stopBtn">Stop</button>
+        <form id="uploadForm" enctype="multipart/form-data">
+            <label for="source_image">Upload Source Image:</label>
+            <input id="source_image" name="file" type="file" accept="image/*" required>
+            <input type="submit" value="Upload">
+        </form>
+    </div>
+
+    <script>
+        const originalCanvas = document.getElementById('original');
+        const processedCanvas = document.getElementById('processed');
+        const originalCtx = originalCanvas.getContext('2d');
+        const processedCtx = processedCanvas.getContext('2d');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const loading = document.getElementById('loading');
+        let streaming = false;
+        let socket = null;
+        let mediaStream = null;
+        let frameQueue = []; // Queue for buffering processed frames
+        let isRendering = false;
+        let pingInterval;
+
+        // Function to display processed frames
+        const displayProcessedFrames = () => {
+            if (frameQueue.length > 0) {
+                const frameBlob = frameQueue.shift(); // Get the next processed frame from the queue
+                const img = new Image();
+                img.src = URL.createObjectURL(frameBlob);
+                img.onload = function() {
+                    // Set processed canvas size to match image dimensions if needed
+                    if (processedCanvas.width !== img.width || processedCanvas.height !== img.height) {
+                        processedCanvas.width = img.width;
+                        processedCanvas.height = img.height;
+                    }
+
+                    // Draw the processed image on the processed canvas
+                    processedCtx.drawImage(img, 0, 0, processedCanvas.width, processedCanvas.height);
+                };
+
+                // Request the next frame for rendering
+                requestAnimationFrame(displayProcessedFrames);
+            } else if (isRendering) {
+                // If no frames are available but still rendering, call the function again
+                requestAnimationFrame(displayProcessedFrames);
+            }
+        };
+
+        // Function to start streaming and sending frames to the server
+        async function startStreaming() {
+            loading.style.display = 'block';
+            mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+            streaming = true;
+
+            // Show the original video in the original canvas
+            const videoTrack = mediaStream.getVideoTracks()[0];
+            const imageCapture = new ImageCapture(videoTrack);
+
+            const captureAndDisplayOriginal = async () => {
+                if (!streaming) return;
+
+                try {
+                    const frame = await imageCapture.grabFrame();
+                    originalCanvas.width = frame.width;
+                    originalCanvas.height = frame.height;
+
+                    // Draw the original frame on the original canvas
+                    originalCtx.drawImage(frame, 0, 0, originalCanvas.width, originalCanvas.height);
+                    
+                    // Send the frame to the server for processing
+                    originalCanvas.toBlob((blob) => {
+                        if (blob) {
+                            blob.arrayBuffer().then(buffer => {
+                                socket.send(buffer); // Send the captured frame to the server
+                            });
+                        }
+                    });
+                } catch (err) {
+                    console.error('Error capturing frame:', err);
+                }
+
+                requestAnimationFrame(captureAndDisplayOriginal);
+            };
+            captureAndDisplayOriginal();
+
+            // Open WebSocket for receiving processed frames
+            socket = new WebSocket('wss://18.215.145.84/video_stream');
+            socket.binaryType = 'arraybuffer';
+
+            socket.onopen = () => {
+                console.log('WebSocket connection established');
+            };
+
+            // Receive and queue processed frames
+            socket.onmessage = function(event) {
+                if (event.data === 'pong') {
+                    console.log('Received pong');
+                } else {
+                    // Create a blob from the received data
+                    console.log("new frame")
+                    const blob = new Blob([event.data], { type: 'image/jpg' });
+                    frameQueue.push(blob); // Add the frame to the queue
+                }
+            };
+
+            socket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+
+            socket.onclose = () => {
+                console.log('WebSocket connection closed');
+                stopStreaming();
+            };
+
+            // Start rendering received processed frames
+            isRendering = true;
+            requestAnimationFrame(displayProcessedFrames);
+        }
+
+        function stopStreaming() {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+            }
+            if (socket) {
+                socket.close();
+            }
+            streaming = false;
+            isRendering = false;
+        }
+
+        startBtn.onclick = () => {
+            if (!streaming) startStreaming();
+        };
+
+        stopBtn.onclick = () => {
+            stopStreaming();
+        };
+
+        window.onbeforeunload = () => {
+            if (streaming) stopStreaming();
+        };
+    </script>
+</body>
+</html>
